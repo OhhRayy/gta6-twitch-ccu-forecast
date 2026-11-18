@@ -100,3 +100,28 @@
   (console blend, bandwidth, spread scale, trend lambda) was tried and
   REJECTED: full-practice 0.1532 but LOO 0.1761 — overfit, selections
   disagreed per fold. The shipped config is the simpler LOO-validated one.
+
+## Revision v3 (18 Nov 2026 ~23:00 WIB) — wider trend-fit bandwidth
+- Why: v2's trend slope for a mega-launch is fit from only the ~5
+  comparables nearest the case's scale (effective sample size ~5 of 26 at
+  p1=1.5M) — noisy exactly where the final case lives. The median keeps
+  bandwidth 0.6, but the regression now uses its own wider bandwidth
+  (TREND_BANDWIDTH = 3.0): the slope is fit over the full scale range
+  (ESS ~15). One-constant change; clamp, console blend, spread all
+  untouched. Rejected after testing: slope clamp 0.75/1.0 (tiny gain,
+  hour-18 instability), quadratic trend (worse), recency weighting
+  (worse), dl winsorization (no gain), wider grid (already rejected in v2).
+- Scores (same local scorer): **0.1556** (p00 0.2132, p01 0.1115, p02
+  0.1115, p03 0.1861) vs v2 0.1676 (-7.2%), better on ALL FOUR cases,
+  baseline 0.3871. TS output identical to the Python reference (460/460
+  quantiles); format valid; deterministic (three runs byte-identical);
+  runtime ~1.5s for 4 cases incl. tsx startup (cap 8s/case).
+- Hold-out (LOO of the selection procedure v2 vs wider fit, picked on the
+  three training cases): the wider fit is picked in ALL FOUR folds:
+  **LOO 0.1556 vs 0.1748 for v2** (-11.0%). Extrapolation sanity: for a
+  hypothetical 1.5M (and 3M) hour-1 case the forecast centres stay in the
+  same range as v2 (no explosion); the wider fit's centres are close to
+  v2's at every sampled hour.
+- Status: built + verified in this session, BELUM submit — parent re-bundles
+  with complete usage rows and submits before the 19 Nov 08:00 WIB deadline
+  (day cap: v2 used 2 of 3 slots; 1 slot left before the 07:00 WIB reset).

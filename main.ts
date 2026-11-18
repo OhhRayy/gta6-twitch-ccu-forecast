@@ -36,12 +36,12 @@
 //     never a crash.
 //
 // Practice, scored locally against SullyGnome's hourly averages (the same
-// source the kit froze; hour-1 prints match the cases exactly): loss 0.1676
-// (p00 0.2500, p01 0.1118, p02 0.1192, p03 0.1894), versus the submitted
-// v1's 0.2061 and the house baseline's 0.3871. Leave-one-case-out
-// cross-validation of the whole selection procedure (grid over unlock
-// weight, tier filter, smoothing, trend on/off, spread floor, scored on the
-// held-out case) gives 0.1748 versus 0.2061 for v1 — the improvement holds
+// source the kit froze; hour-1 prints match the cases exactly): loss 0.1556
+// (p00 0.2132, p01 0.1115, p02 0.1115, p03 0.1861), versus the submitted
+// v2's 0.1676 and the house baseline's 0.3871. Leave-one-case-out
+// cross-validation of the whole selection procedure (v2 vs this wider
+// trend fit, picked on the three training cases) selects the wider fit in
+// all four folds: LOO 0.1556 versus 0.1748 for v2 — the improvement holds
 // out of sample, it is not fitted to the four cases. Practice pays nothing
 // and is no guide to the final; it only shows the shape model beats flat
 // persistence on every past launch in the kit, and that the scale trend is
@@ -67,6 +67,15 @@ const LEVELS = [0.05, 0.25, 0.5, 0.75, 0.95];
 const Z = [-1.645, -0.674, 0, 0.674, 1.645];
 /** Scale-weight bandwidth, in natural-log units of hour-1 viewers. */
 const BANDWIDTH = 0.6;
+/** Bandwidth for the scale-trend regression ONLY. The median keeps
+ *  BANDWIDTH, but the trend slope is fit with a much wider window: with
+ *  0.6 the fit for a mega-launch sees only the ~5 comparables nearest its
+ *  scale (effective sample size ~5 of 26), so the slope is noisy exactly
+ *  where the final case lives; with 3.0 it uses the whole scale range
+ *  (ESS ~15) and the slope is stable. Practice 0.1556 vs 0.1676 for the
+ *  0.6 fit, better on all four cases, and the wider fit is picked in all
+ *  four leave-one-case-out folds (LOO 0.1556 vs 0.1748). */
+const TREND_BANDWIDTH = 3.0;
 /** Weight of the console-only median in the centre blend. */
 const CONSOLE_BLEND = 0.6;
 /** Weight kept by a comparable whose unlock is not a rolling midnight. */
@@ -197,13 +206,17 @@ function forecastCase(c: Case): Array<{ hour: number; q: number[] }> {
     const dl = Math.log(compP1) - Math.log(p1);
     const kindWeight = unlockKind(comp) === 'rolling' ? 1 : NON_ROLLING_WEIGHT;
     const w = Math.exp(-Math.abs(dl) / BANDWIDTH) * kindWeight;
+    // The trend regression gets its own, wider bandwidth (see
+    // TREND_BANDWIDTH): the slope must be fit over the full scale range,
+    // not just the comparables nearest this case's scale.
+    const wt = Math.exp(-Math.abs(dl) / TREND_BANDWIDTH) * kindWeight;
     const consoleOnly = !/pc/i.test(comp.platforms ?? '');
     for (let h = 2; h <= 24; h++) {
       const v = byTime.get(dayStart + (h - 1) * 3600_000);
       if (v === undefined || !Number.isFinite(v) || v < 1) continue;
       const r = Math.log(v / compP1);
       samples.get(h)!.push([r, w]);
-      triples.get(h)!.push([r, w, dl]);
+      triples.get(h)!.push([r, wt, dl]);
       if (consoleOnly) samplesConsole.get(h)!.push([r, w]);
     }
   }
