@@ -15,7 +15,9 @@
 //   - Forecast: q_tau(h) = p1 * exp(centre_h + z_tau * spread_h), rounded to 2
 //     decimals, where p1 is this case's hour-1 print. The Grand Theft Auto VI
 //     category's own pre-release history (a comparable that is not a launch) is
-//     excluded, as is any comparable with no hour-1 print.
+//     excluded, as is any comparable with no hour-1 print. Non-finite viewer
+//     counts are skipped (a NaN would poison the log-ratios), and every
+//     quantile is capped at 1e9, the output's upper bound.
 //   - If a case has no usable comparables at all, the centre is 0 and the spread is
 //     the house baseline's 0.15 * sqrt(h - 1): plain persistence, never a crash.
 //
@@ -125,9 +127,9 @@ function isTargetHistory(c: Comparable): boolean {
   return name.includes('grand theft auto vi') || unlock.includes('not a launch') || unlock.includes('target-history');
 }
 
-/** The forecast quantiles for one hour. */
+/** The forecast quantiles for one hour, kept inside the output's (0, 1e9] bounds. */
 function hourQuantiles(p1: number, centre: number, spread: number): number[] {
-  return Z.map((z) => Math.max(1, round2(p1 * Math.exp(centre + z * spread))));
+  return Z.map((z) => Math.min(1e9, Math.max(1, round2(p1 * Math.exp(centre + z * spread)))));
 }
 
 function forecastCase(c: Case): Array<{ hour: number; q: number[] }> {
@@ -136,7 +138,10 @@ function forecastCase(c: Case): Array<{ hour: number; q: number[] }> {
   }
   const first = c.known.find((k) => k.hour === 1);
   const lastHistory = c.history.length > 0 ? c.history[c.history.length - 1] : undefined;
-  const p1 = Math.max(1, first !== undefined ? first.viewers : lastHistory !== undefined ? lastHistory.viewers : 1);
+  // A non-finite hour-1 print would poison every quantile with NaN (Math.max
+  // passes NaN through), so fall back to 1 instead of trusting the raw value.
+  const rawP1 = first !== undefined ? first.viewers : lastHistory !== undefined ? lastHistory.viewers : 1;
+  const p1 = Number.isFinite(rawP1) ? Math.max(1, rawP1) : 1;
 
   // Per-hour log-ratio samples from the comparables, with scale weights.
   const samples = new Map<number, Array<[number, number]>>();
@@ -155,12 +160,12 @@ function forecastCase(c: Case): Array<{ hour: number; q: number[] }> {
       if (!Number.isNaN(t)) byTime.set(t, p.viewers);
     }
     const compP1 = byTime.get(dayStart);
-    if (compP1 === undefined || compP1 < 1) continue;
+    if (compP1 === undefined || !Number.isFinite(compP1) || compP1 < 1) continue;
     const w = Math.exp(-Math.abs(Math.log(compP1) - Math.log(p1)) / BANDWIDTH);
     const consoleOnly = !/pc/i.test(comp.platforms ?? '');
     for (let h = 2; h <= 24; h++) {
       const v = byTime.get(dayStart + (h - 1) * 3600_000);
-      if (v === undefined || v < 1) continue;
+      if (v === undefined || !Number.isFinite(v) || v < 1) continue;
       const r = Math.log(v / compP1);
       samples.get(h)!.push([r, w]);
       if (consoleOnly) samplesConsole.get(h)!.push([r, w]);
